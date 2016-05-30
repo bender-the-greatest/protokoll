@@ -1,6 +1,12 @@
 # Protokoll - Track Your Time
 A simple program made for tracking your time spent on tasks per project. Designed around use from the shell.
 
+Installation
+============
+```
+pip install protokoll
+```
+
 Usage
 =====
 ```
