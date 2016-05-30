@@ -24,7 +24,7 @@ conf=dict(
 )
 
 conf.update(dict(
-    download_url='{0}/tarball/{1}'.format(conf['url'], conf['version'])
+    download_url='{0}/tarball/v{1}'.format(conf['url'], conf['version'])
 ))
 
 setup(**conf)
