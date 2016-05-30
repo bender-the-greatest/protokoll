@@ -1,15 +1,16 @@
-from protokoll.schema import SCHEMA
-
 import sqlite3
 from os import path, makedirs
-from sys import stderr
 from datetime import datetime
+
+from click import echo
 
 class db:
 
-    def __init__(
+    
+    ## TODO: Use abstract implementation to allow for pluggable DB backends later
+    def __init__(self,
             sqlite_dir=path.join(path.expanduser('~'), '.config', 'protokoll'),
-            sqlite_filename='protokoll.sqlite3' )
+            sqlite_filename='protokoll.sqlite3' ):
         """
         Work with the Protokoll SQLite3 database.
 
@@ -18,7 +19,6 @@ class db:
         :param sqlite_filename: The name of the SQLite3 db file.
         :type sqlite_filename: str
         """
-
         # Create directory if it doesn't exist
         if not path.isdir(sqlite_dir):
             makedirs(sqlite_dir)
@@ -30,22 +30,31 @@ class db:
         self._sqlite = sqlite3.connect(fullpath)
         
 
-    def create_project(self, project_name, close=True):
-        c = self._sqlite.cursor()
-        c.execute(
-            "CREATE TABLE IF NOT EXISTS ? "
-            "(task_id INT NOT NULL PRIMARY KEY AUTOINCREMENT, "
+    def create_project(self, project_name, close=False):
+        """
+        Create a new project.
+        
+        :param project_name: Name of the new project. Project names cannot start with 'sqlite_'.
+        :type project_name: str
+        :param close: Close the database connection when completed.
+        :type close: bool
+        """
+        if project_name.startswith('sqlite_'):
+            raise ValueError('''Project name cannot start with 'sqlite_'.''')
+
+        project_name = project_name.replace("'", "''")
+        
+        self.__execute(
+            "CREATE TABLE IF NOT EXISTS {tn} "
+            "(task_id INTEGER PRIMARY KEY AUTOINCREMENT, "
             "name TEXT, "
             "start_time DATETIME, "
             "stop_time DATETIME, "
             "total_mins INT, "
-            "is_running INT NOT NULL)", project_name)
-        self._sqlite.commit()
-        if close:
-            self._sqlite.close()
+            "is_running INT NOT NULL)", close, False, tn=project_name)
+        
 
-
-    def remove_project(self, project_name, close=True):
+    def remove_project(self, project_name, close=False):
         """
         Remove a project.
 
@@ -54,18 +63,13 @@ class db:
         :param close: Close the database connection when finished.
         :type close: bool
         """
-        
-        c = self._sqlite.cursor()
-        c.execute("DROP TABLE ? IF EXISTS", project_name)
-        self._sqlite.commit()
-        if close:
-            self._sqlite.close()
+        self.__execute("DROP TABLE {tn}", close, True, tn=project_name)
 
-
+    
     def create_task(self, project_name, task_name="",
-                    start_time=datetime.now(), close=True):
+                    start_time=datetime.now(), close=False):
         """
-        Create a new task in a project. One one task may be running at a time.
+        Create a new task in a project. Only one task may be running at a time.
 
         :param project_name: Name of the project to add the task to.
         :type project_name: str
@@ -73,50 +77,41 @@ class db:
         :type task_name: str
         :param start_time: The time the task started.
         :type start_time: datetime
-        :return: True on success, False on failure.
-        :rtype: bool
         """
-        
-        c = self._sqlite.cursor()
 
-        try:
-            # Check that we do not already have a running task
-            if _check_for_running_tasks():
-                print('There is already a task running.', file=stderr)
-                return False
+        # Check that we do not already have a running task
+        if self._check_for_running_tasks():
+            raise Exception('There is already a task running.')
 
-            # Create the task
-            c.execute(
-                "INSERT INTO ? "
-                "(name, start_time, is_running) "
-                "VALUES (?, '?', 1)", project_name, task_name, start_time)
-        finally:
-            if close:
-                self._sqlite.close()
-                
-            
-    def stop_running_task(self, stop_time=datetime.now(), close=True):
+        # Sanitize single quotes
+        task_name = task_name.replace("'", "''")
+
+        # Create the task
+        self.__execute(
+            "INSERT INTO {tn} "
+            "(name, start_time, is_running) "
+            "VALUES ('{taskname}', DateTime('{start}'), 1)", close, True,
+            tn=project_name, taskname=task_name, start=start_time)
+
+    
+    def stop_running_task(self, stop_time=datetime.now(), close=False):
         """
-        Stop the currently running task.
+        Stop any currently running tasks.
 
         :param close: Close the db connection on completion.
         :type close: bool
         :param stop_time: Time that the task was completed.
         :type stop_time: datetime
-        :return: True on success, False otherwise.
-        :rtype: bool
         """
+        for project in self._get_projects_with_running_tasks(close=False):
+            self.__execute(
+                "UPDATE {tn} "
+                "SET stop_time=DateTime('{stop}'), is_running=0, "
+                "total_mins=Cast(((JulianDay('{stop}') - JulianDay(start_time)) * 24 * 60) AS INT) " 
+                "WHERE is_running=1", close, True, tn=project, stop=stop_time)
+    
 
-        c = self._sqlite.cursor()
-        for project in _get_projects_with_running_tasks(close=False):
-            c.execute(
-                "UPDATE ? ",
-                "SET stop_time=('?'), is_running=(0) "
-                "WHERE is_running=1", project, stop_time)
-            
-        return True
-
-    def get_projects(self, close=True):
+    def get_projects(self, close=False):
         """
         Gets a list of projects.
 
@@ -124,45 +119,74 @@ class db:
         :type close: bool
         :return: List of project names.
         """
-        c = self._sqlite.cursor()
-        c.execute(
+        p_tables = self.__execute(
             "SELECT name FROM sqlite_master "
-            "WHERE type='table'")
-        projects = c.fetchall()
-        if close:
-            self._sqlite.close()
+            "WHERE type='table' AND name NOT LIKE 'sqlite?_%' escape '?'", close=close)
+
+        # Queries return tuples, so grab the first element
+        projects = [n[0] for n in p_tables]
         return projects
         
 
-    def get_project_tasks(self, days=1, close=True):
-        pass
+    def get_project_tasks(self, project_name, days=0, close=False):
+        """
+        Retreive a list of project tasks from within a specified number of days.
 
+        :param project_name: Name of the project to retrieve tasks from.
+        :type project_name: str
+        :param days: How many days worth of tasks you want to retrieve.
+                     
+                     The value of days is equal to the number of days back to
+                     select and return. A value of zero (0) will return tasks
+                     only from today, a value of one (1) will return today
+                     and yesterdays tasks, a value of two will return tasks
+                     from today, yesterday, and the day before, etc.
+        :type days: int
+        :param close: Close the database connection when completed.
+        :type close: bool
+        :return: A list of tasks in dict format.
+        :rtype: list (dict)
+        """
+        rows = self.__execute(
+            "SELECT * FROM {tn} "
+            "WHERE Cast((JulianDay('now') - JulianDay(start_time)) AS INT) <= {d}", close, False,
+            tn=project_name, d=days)
+        
+        tasks = []
+        for row in rows:
+            row_dict = {
+                'task_id': row[0] if row[0] is not None else '#',
+                'name': row[1] if row[1] else '',
+                'start_time': row[2] if row[2] is not None else '',
+                'stop_time': row[3] if row[3] is not None else '',
+                'total_mins': row[4] if row[4] is not None else int((datetime.now() - datetime.strptime(row[2], "%Y-%m-%d %H:%M:%S")).total_seconds() / 60),
+                'is_running': '' if row[5] == 0 else '*'
+            }
 
-    def _check_for_running_tasks(self, close=True):
+            tasks.append(row_dict)
+        
+        return tasks
+
+    
+    def _check_for_running_tasks(self, close=False):
         """
         Checks for running tasks.
 
         :return: True if a task is currently running, False if not.
         :rtype: bool
         """
-        c = self.sqlite.cursor()
-        projects = self.get_projects(close=False)
+        projects = self.get_projects()
 
-        try:
-            for project in projects:
-                c.execute(
-                    "SELECT (is_running) FROM ? ",
-                    "WHERE is_running=1", project)
-                if len(c.fetchall()) > 0:
-                    return True
+        for project in projects:
+            rows = self.__execute(
+                "SELECT is_running FROM {tn} "
+                "WHERE is_running=1", close, False, tn=project)
+            if len(rows) > 0:
+                return True
 
-            return False
-        finally:
-            if close:
-                self.sqlite.close()
+        return False
 
-
-    def _get_projects_with_running_tasks(self, close=True):
+    def _get_projects_with_running_tasks(self, close=False):
         """
         Return a list of projects with running tasks.
 
@@ -171,14 +195,51 @@ class db:
         :return: A list of project names with running tasks.
         :rtype: list (str)
         """
-        c = self._sqlite.cursor()
-        all_projects = self.get_projects(close=False)
+        all_projects = self.get_projects()
         
         projects = []
         for project in all_projects:
-            c.execute(
-                "SELECT (is_running) from ? ",
-                "WHERE is_running=1", project)
-            if len(c.fetchall()) > 0:
+            rows = self.__execute(
+                "SELECT is_running from {tn} "
+                "WHERE is_running=1", close, False, tn=project)
+                
+            if len(rows) > 0:
                 projects.append(project)
         return projects
+    
+    
+    def __execute(self, cmd, close=False, commit=False, debug=False, **fargs):
+        """
+        Execute a SQLite3 query, optionally formatted.
+
+        :param cmd: The SQLite3 query to run. Formatting can be applied using the **fargs parameter.
+        :type cmd: str
+        :param close: Close the connection after the query is run.
+        :type close: bool
+        :param commit: Commit resulting changes from the query to the database.
+        :type commit: bool
+        :param debug: Print out the SQL statement prior to execution. Useful only for development.
+        :type debug: bool
+        :param **fargs: Formatting arguments for the SQLite3 query
+        :type **fargs: dict
+        """
+        error = False
+        c = self._sqlite.cursor()
+        lines = []
+        try:
+            query = cmd.format(**fargs)
+            if debug:
+                echo("DEBUG QUERY: {0}".format(query))
+            c.execute(query)
+            lines = c.fetchall()
+            if commit:
+                self._sqlite.commit()
+        except Exception:
+            error = True
+            raise
+        finally:
+            if error or close:
+                self._sqlite.close()
+
+        return lines
+            
