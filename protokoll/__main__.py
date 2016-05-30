@@ -1,12 +1,21 @@
 import click
 from click import echo
+
 from protokoll.db import db
+from protokoll.__version__ import __version__ as VERSION
 
 
 @click.group()
 def cli():
     pass
 
+
+@cli.command()
+def version():
+    """
+    Display Protokoll version information and exit. 
+    """
+    echo("v{ver}".format(ver=VERSION))
 
 @cli.group()
 def project():
