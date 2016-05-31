@@ -12,7 +12,7 @@ from protokoll.__version__ import __version__ as VERSION
 @click.group()
 def cli():
     """
-    Protokoll CLI
+    Protokoll CLI. Can be run with either the `protokoll` or `p` commands.
     """
     pass
 
@@ -20,7 +20,7 @@ def cli():
 @cli.command()
 def version():
     """
-    Display Protokoll version information and exit.
+    Display Protokoll version information.
     """
     echo("v{ver}".format(ver=VERSION))
 
