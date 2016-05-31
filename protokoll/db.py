@@ -1,16 +1,21 @@
+"""
+Module with helpers for interfacing with the database backend.
+"""
+
 import sqlite3
 from os import path, makedirs
 from datetime import datetime
-
 from click import echo
 
-class db:
 
-    
-    ## TODO: Use abstract implementation to allow for pluggable DB backends later
+class Db:
+    """
+    Class used to interface with the database.
+    """
+
     def __init__(self,
-            sqlite_dir=path.join(path.expanduser('~'), '.config', 'protokoll'),
-            sqlite_filename='protokoll.sqlite3' ):
+                 sqlite_dir=path.join(path.expanduser('~'), '.config', 'protokoll'),
+                 sqlite_filename='protokoll.sqlite3'):
         """
         Work with the Protokoll SQLite3 database.
 
@@ -24,16 +29,16 @@ class db:
             makedirs(sqlite_dir)
 
         fullpath = path.join(sqlite_dir, sqlite_filename)
-        
+
         # Member vars
         self._sqlite_path = fullpath
         self._sqlite = sqlite3.connect(fullpath)
-        
+
 
     def create_project(self, project_name, close=False):
         """
         Create a new project.
-        
+
         :param project_name: Name of the new project. Project names cannot start with 'sqlite_'.
         :type project_name: str
         :param close: Close the database connection when completed.
@@ -43,7 +48,7 @@ class db:
             raise ValueError('''Project name cannot start with 'sqlite_'.''')
 
         project_name = project_name.replace("'", "''")
-        
+
         self.__execute(
             "CREATE TABLE IF NOT EXISTS {tn} "
             "(task_id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -52,7 +57,7 @@ class db:
             "stop_time DATETIME, "
             "total_mins INT, "
             "is_running INT NOT NULL)", close, False, tn=project_name)
-        
+
 
     def remove_project(self, project_name, close=False):
         """
@@ -65,7 +70,7 @@ class db:
         """
         self.__execute("DROP TABLE {tn}", close, True, tn=project_name)
 
-    
+
     def create_task(self, project_name, task_name="",
                     start_time=datetime.now(), close=False):
         """
@@ -80,7 +85,7 @@ class db:
         """
 
         # Check that we do not already have a running task
-        if self._check_for_running_tasks():
+        if self.__check_for_running_tasks():
             raise Exception('There is already a task running.')
 
         # Sanitize single quotes
@@ -93,7 +98,7 @@ class db:
             "VALUES ('{taskname}', DateTime('{start}'), 1)", close, True,
             tn=project_name, taskname=task_name, start=start_time)
 
-    
+
     def stop_running_task(self, stop_time=datetime.now(), close=False):
         """
         Stop any currently running tasks.
@@ -103,13 +108,13 @@ class db:
         :param stop_time: Time that the task was completed.
         :type stop_time: datetime
         """
-        for project in self._get_projects_with_running_tasks(close=False):
+        for project in self.get_projects_with_running_tasks(close=False):
             self.__execute(
                 "UPDATE {tn} "
                 "SET stop_time=DateTime('{stop}'), is_running=0, "
-                "total_mins=Cast(((JulianDay('{stop}') - JulianDay(start_time)) * 24 * 60) AS INT) " 
+                "total_mins=Cast(((JulianDay('{stop}') - JulianDay(start_time)) * 24 * 60) AS INT) "
                 "WHERE is_running=1", close, True, tn=project, stop=stop_time)
-    
+
 
     def get_projects(self, close=False):
         """
@@ -126,7 +131,7 @@ class db:
         # Queries return tuples, so grab the first element
         projects = [n[0] for n in p_tables]
         return projects
-        
+
 
     def get_project_tasks(self, project_name, days=0, close=False):
         """
@@ -135,7 +140,7 @@ class db:
         :param project_name: Name of the project to retrieve tasks from.
         :type project_name: str
         :param days: How many days worth of tasks you want to retrieve.
-                     
+
                      The value of days is equal to the number of days back to
                      select and return. A value of zero (0) will return tasks
                      only from today, a value of one (1) will return today
@@ -151,7 +156,7 @@ class db:
             "SELECT * FROM {tn} "
             "WHERE Cast((JulianDay('now') - JulianDay(start_time)) AS INT) <= {d}", close, False,
             tn=project_name, d=days)
-        
+
         tasks = []
         for row in rows:
             row_dict = {
@@ -159,16 +164,20 @@ class db:
                 'name': row[1] if row[1] else '',
                 'start_time': row[2] if row[2] is not None else '',
                 'stop_time': row[3] if row[3] is not None else '',
-                'total_mins': row[4] if row[4] is not None else int((datetime.now() - datetime.strptime(row[2], "%Y-%m-%d %H:%M:%S")).total_seconds() / 60),
+                'total_mins': row[4] if row[4] is not None else int((datetime.now() -
+                                                                     datetime.strptime(row[2],
+                                                                                       "%Y-%m-%d "
+                                                                                       "%H:%M:%S"))
+                                                                    .total_seconds() / 60),
                 'is_running': '' if row[5] == 0 else '*'
             }
 
             tasks.append(row_dict)
-        
+
         return tasks
 
-    
-    def _check_for_running_tasks(self, close=False):
+
+    def __check_for_running_tasks(self, close=False):
         """
         Checks for running tasks.
 
@@ -186,7 +195,7 @@ class db:
 
         return False
 
-    def _get_projects_with_running_tasks(self, close=False):
+    def get_projects_with_running_tasks(self, close=False):
         """
         Return a list of projects with running tasks.
 
@@ -196,18 +205,18 @@ class db:
         :rtype: list (str)
         """
         all_projects = self.get_projects()
-        
+
         projects = []
         for project in all_projects:
             rows = self.__execute(
                 "SELECT is_running from {tn} "
                 "WHERE is_running=1", close, False, tn=project)
-                
+
             if len(rows) > 0:
                 projects.append(project)
         return projects
-    
-    
+
+
     def __execute(self, cmd, close=False, commit=False, debug=False, **fargs):
         """
         Execute a SQLite3 query, optionally formatted.
@@ -224,14 +233,14 @@ class db:
         :type **fargs: dict
         """
         error = False
-        c = self._sqlite.cursor()
+        cursor = self._sqlite.cursor()
         lines = []
         try:
             query = cmd.format(**fargs)
             if debug:
                 echo("DEBUG QUERY: {0}".format(query))
-            c.execute(query)
-            lines = c.fetchall()
+            cursor.execute(query)
+            lines = cursor.fetchall()
             if commit:
                 self._sqlite.commit()
         except Exception:
@@ -242,4 +251,4 @@ class db:
                 self._sqlite.close()
 
         return lines
-            
+
