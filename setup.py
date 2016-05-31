@@ -16,6 +16,7 @@ conf=dict(
     entry_points={
         'console_scripts': [
             'protokoll=protokoll.__main__:cli'
+            'p=protokoll.__main__:cli'
         ]
     },
     install_requires=[
