@@ -3,8 +3,16 @@ A simple program made for tracking your time spent on tasks per project. Designe
 
 Installation
 ============
+Using Pip:
 ```
 pip install protokoll
+```
+
+Or install from source:
+```
+git clone https://github.com/metalseargolid/protokoll
+cd protokoll
+python setup.py install
 ```
 
 Usage

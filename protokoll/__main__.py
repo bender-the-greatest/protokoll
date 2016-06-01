@@ -1,19 +1,26 @@
+"""
+Entrypoint for Protokoll.
+"""
+
 import click
 from click import echo
 
-from protokoll.db import db
+from protokoll.db import Db
 from protokoll.__version__ import __version__ as VERSION
 
 
 @click.group()
 def cli():
+    """
+    Protokoll CLI. Can be run with either the `protokoll` or `p` commands.
+    """
     pass
 
 
 @cli.command()
 def version():
     """
-    Display Protokoll version information and exit. 
+    Display Protokoll version information.
     """
     echo("v{ver}".format(ver=VERSION))
 
@@ -33,7 +40,7 @@ def create(project_name):
 
     :param project_name: Name of the project.
     """
-    dbo = db()
+    dbo = Db()
     dbo.create_project(project_name, close=True)
 
 
@@ -48,18 +55,20 @@ def remove(project_name):
 
     :param project_name: Name of the project to remove.
     """
-    dbo = db()
+    dbo = Db()
     dbo.remove_project(project_name, close=True)
 
 
 @project.command()
+# pylint: disable=W0622
 def list():
+# pylint: enable=W0622
     """
     List projects.
     """
-    dbo = db()
-    for project in dbo.get_projects(close=True):
-        echo(project)
+    dbo = Db()
+    for proj in dbo.get_projects(close=True):
+        echo(proj)
 
 
 @cli.group()
@@ -76,11 +85,11 @@ def task():
 def start(project_name, task_name):
     """
     Start a new task in a given project.
-    
+
     :param project_name: Name of the project to start the task in.
     :param task_name: Name/Description of the task you are starting. Character limit of 50.
-    """    
-    dbo = db()
+    """
+    dbo = Db()
     dbo.create_task(project_name, task_name[:50], close=True)
 
 
@@ -89,15 +98,17 @@ def stop():
     """
     Stop a currently running task.
     """
-    dbo = db()
+    dbo = Db()
     dbo.stop_running_task(close=True)
-    
+
 
 @task.command()
 @click.option('-d', '--days', type=click.INT, default=0,
-             help='The number of previous days to include in the task list. Must be positive. [0]')
+              help='The number of previous days to include in the task list. Must be positive. [0]')
 @click.argument('project_name')
+# pylint: disable=W0622,E0102
 def list(days, project_name):
+# pylint: enable=W0622,E0102
     """
     List tasks in a given project.
 
@@ -106,9 +117,10 @@ def list(days, project_name):
     """
     # Check options
     if days < 0:
-        raise ValueError('"days" cannot be less than zero (0).')
-    
-    dbo = db()
+        echo('"--days {days}" cannot be less than zero (0).'.format(days=days), err=True)
+        return 1
+
+    dbo = Db()
     tasks = dbo.get_project_tasks(project_name, days, close=True)
 
     # Format the output nicely
@@ -116,9 +128,9 @@ def list(days, project_name):
     echo(template.format(
         task_id='Task Id', name='Name', start_time='Start Time', stop_time='Stop Time',
         total_mins='Total Mins', is_running='Is Running'))
-    for task in tasks:
-        echo(template.format(**task))
+    for tsk in tasks:
+        echo(template.format(**tsk))
 
-    
+
 if __name__ == '__main__':
     cli()
