@@ -163,7 +163,8 @@ def list(days, project_name):
       "{total_mins:10}|{is_running:8}"
 
     echo(template.format(
-        task_id='Task Id', project_name='Project Name', name='Task Name', start_time='Start Time', stop_time='Stop Time',
+        task_id='Task Id', project_name='Project Name', name='Task Name', start_time='Start Time',
+        stop_time='Stop Time',
         total_mins='Total Mins', is_running='Is Running'))
     for tsk in tasks:
         echo(template.format(**tsk))
