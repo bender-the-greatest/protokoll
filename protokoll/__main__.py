@@ -2,10 +2,13 @@
 Entrypoint for Protokoll.
 """
 
+from sys import exit as EXIT
+
 import click
 from click import echo
 
 from protokoll.db import Db
+from protokoll.exception import ProtokollException
 from protokoll.__version__ import __version__ as VERSION
 
 
@@ -38,10 +41,16 @@ def create(project_name):
     """
     Create a new project.
 
+    If the project already exists, succeed anyways.
     :param project_name: Name of the project.
     """
-    dbo = Db()
-    dbo.create_project(project_name, close=True)
+    try:
+        dbo = Db()
+        name = dbo.create_project(project_name, close=True)
+        echo("Created project '{name}'".format(name=name))
+    except ProtokollException as ex:
+        echo(str(ex), err=True)
+        EXIT(1)
 
 
 @project.command()
@@ -55,8 +64,12 @@ def remove(project_name):
 
     :param project_name: Name of the project to remove.
     """
-    dbo = Db()
-    dbo.remove_project(project_name, close=True)
+    try:
+        dbo = Db()
+        dbo.remove_project(project_name, close=True)
+    except ProtokollException as ex:
+        echo(str(ex), err=True)
+        EXIT(1)
 
 
 @project.command()
@@ -66,9 +79,19 @@ def list():
     """
     List projects.
     """
-    dbo = Db()
-    for proj in dbo.get_projects(close=True):
-        echo(proj)
+    try:
+        dbo = Db()
+        projects = dbo.get_projects(close=True)
+    except ProtokollException as ex:
+        echo(str(ex), err=True)
+        EXIT(1)
+
+    # Format the output nicely
+    template = "{project_id: >10}|{name:15}"
+    echo(template.format(
+        project_id='ID', name='Name'))
+    for proj in projects:
+        echo(template.format(**proj))
 
 
 @cli.group()
@@ -89,8 +112,12 @@ def start(project_name, task_name):
     :param project_name: Name of the project to start the task in.
     :param task_name: Name/Description of the task you are starting. Character limit of 50.
     """
-    dbo = Db()
-    dbo.create_task(project_name, task_name[:50], close=True)
+    try:
+        dbo = Db()
+        dbo.create_task(project_name, task_name[:50], close=True)
+    except ProtokollException as ex:
+        echo(str(ex), err=True)
+        EXIT(1)
 
 
 @task.command()
@@ -98,8 +125,12 @@ def stop():
     """
     Stop a currently running task.
     """
-    dbo = Db()
-    dbo.stop_running_task(close=True)
+    try:
+        dbo = Db()
+        dbo.stop_running_task(close=True)
+    except ProtokollException as ex:
+        echo(str(ex), err=True)
+        EXIT(1)
 
 
 @task.command()
@@ -118,15 +149,21 @@ def list(days, project_name):
     # Check options
     if days < 0:
         echo('"--days {days}" cannot be less than zero (0).'.format(days=days), err=True)
-        return 1
+        EXIT(1)
 
-    dbo = Db()
-    tasks = dbo.get_project_tasks(project_name, days, close=True)
+    try:
+        dbo = Db()
+        tasks = dbo.get_project_tasks(project_name, days, close=True)
+    except ProtokollException as ex:
+        echo(str(ex), err=True)
+        EXIT(1)
 
     # Format the output nicely
-    template = "{task_id:8}|{name:50}|{start_time:20}|{stop_time:20}|{total_mins:10}|{is_running:8}"
+    template = "{task_id:8}|{project_name:15}|{name:50}|{start_time:20}|{stop_time:20}|" \
+      "{total_mins:10}|{is_running:8}"
+
     echo(template.format(
-        task_id='Task Id', name='Name', start_time='Start Time', stop_time='Stop Time',
+        task_id='Task Id', project_name='Project Name', name='Task Name', start_time='Start Time', stop_time='Stop Time',
         total_mins='Total Mins', is_running='Is Running'))
     for tsk in tasks:
         echo(template.format(**tsk))

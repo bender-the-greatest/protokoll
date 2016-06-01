@@ -7,6 +7,7 @@ from os import path, makedirs
 from datetime import datetime
 from click import echo
 
+from protokoll.exception import ProtokollException
 
 class Db:
     """
@@ -34,6 +35,23 @@ class Db:
         self._sqlite_path = fullpath
         self._sqlite = sqlite3.connect(fullpath)
 
+        # Create the project table if it doesn't exist
+        self.__execute(
+            "CREATE TABLE IF NOT EXISTS protokoll_projects "
+            "(project_id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "name TEXT)", commit=True)
+
+        # Create the tasks table if it doesn't exist
+        self.__execute(
+            "CREATE TABLE IF NOT EXISTS protokoll_tasks "
+            "(task_id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "project_id INT, "
+            "name TEXT, "
+            "start_time DATETIME, "
+            "stop_time DATETIME, "
+            "total_mins INT, "
+            "is_running INT NOT NULL)", commit=True)
+
 
     def create_project(self, project_name, close=False):
         """
@@ -43,32 +61,51 @@ class Db:
         :type project_name: str
         :param close: Close the database connection when completed.
         :type close: bool
+        :return: Returns the name of the project on success or if the project already exists.
+        :rtype: str
         """
-        if project_name.startswith('sqlite_'):
-            raise ValueError('''Project name cannot start with 'sqlite_'.''')
+        escaped_name = project_name.replace("'", "''")
 
-        project_name = project_name.replace("'", "''")
+        # Make sure the project name is unique, return if it already exists
+        results = len(self.__execute(
+            "SELECT name FROM protokoll_projects "
+            "WHERE name = '{pn}'", pn=escaped_name))
+        if results:
+            return project_name
 
+        # Add the new project
         self.__execute(
-            "CREATE TABLE IF NOT EXISTS {tn} "
-            "(task_id INTEGER PRIMARY KEY AUTOINCREMENT, "
-            "name TEXT, "
-            "start_time DATETIME, "
-            "stop_time DATETIME, "
-            "total_mins INT, "
-            "is_running INT NOT NULL)", close, False, tn=project_name)
+            "INSERT INTO protokoll_projects "
+            "(name) "
+            "VALUES ('{pn}')", close=close, commit=True, pn=project_name)
+
+        return project_name
 
 
     def remove_project(self, project_name, close=False):
         """
-        Remove a project.
+        Remove a project and all tasks associated with it.
 
         :param project_name: Name of the project to remove
         :type project_name: str
         :param close: Close the database connection when finished.
         :type close: bool
+        :return: Name of the project which was removed.
+        :rtype: str
         """
-        self.__execute("DROP TABLE {tn}", close, True, tn=project_name)
+        project_id = self.__get_project_id(project_name)
+
+        # Remove project
+        self.__execute(
+            "DELETE FROM protokoll_projects "
+            "WHERE project_id = {pid}", commit=True, pid=project_id)
+
+        # Remove associated tasks
+        self.__execute(
+            "DELETE FROM protokoll_tasks "
+            "WHERE project_id = {pid}", close=close, commit=True, pid=project_id)
+
+        return project_name
 
 
     def create_task(self, project_name, task_name="",
@@ -86,17 +123,20 @@ class Db:
 
         # Check that we do not already have a running task
         if self.__check_for_running_tasks():
-            raise Exception('There is already a task running.')
+            raise ProtokollException('There is already a task running.')
 
         # Sanitize single quotes
         task_name = task_name.replace("'", "''")
 
+        # Get project id
+        project_id = self.__get_project_id(project_name)
+
         # Create the task
         self.__execute(
-            "INSERT INTO {tn} "
-            "(name, start_time, is_running) "
-            "VALUES ('{taskname}', DateTime('{start}'), 1)", close, True,
-            tn=project_name, taskname=task_name, start=start_time)
+            "INSERT INTO protokoll_tasks "
+            "(project_id, name, start_time, is_running) "
+            "VALUES ({pid}, '{tn}', DateTime('{start}'), 1)", close=close, commit=True,
+            pid=project_id, tn=task_name, start=start_time)
 
 
     def stop_running_task(self, stop_time=datetime.now(), close=False):
@@ -108,12 +148,11 @@ class Db:
         :param stop_time: Time that the task was completed.
         :type stop_time: datetime
         """
-        for project in self.get_projects_with_running_tasks(close=False):
-            self.__execute(
-                "UPDATE {tn} "
-                "SET stop_time=DateTime('{stop}'), is_running=0, "
-                "total_mins=Cast(((JulianDay('{stop}') - JulianDay(start_time)) * 24 * 60) AS INT) "
-                "WHERE is_running=1", close, True, tn=project, stop=stop_time)
+        self.__execute(
+            "UPDATE protokoll_tasks "
+            "SET stop_time=DateTime('{stop}'), is_running=0, "
+            "total_mins=Cast(((JulianDay('{stop}') - JulianDay(start_time)) * 24 * 60) AS INT) "
+            "WHERE is_running=1", close=close, commit=True, stop=stop_time)
 
 
     def get_projects(self, close=False):
@@ -122,16 +161,20 @@ class Db:
 
         :param close: Whether to close the DB connection or not when finished.
         :type close: bool
-        :return: List of project names.
+        :return: List of projects in dict format.
+        :rtype: list (dict)
         """
-        p_tables = self.__execute(
-            "SELECT name FROM sqlite_master "
-            "WHERE type='table' AND name NOT LIKE 'sqlite?_%' escape '?'", close=close)
+        rows = self.__execute(
+            "SELECT * FROM protokoll_projects", close=close)
 
-        # Queries return tuples, so grab the first element
-        projects = [n[0] for n in p_tables]
+        projects = []
+        for row in rows:
+            row_dict = {
+                'project_id': row[0] if row[0] is not None else '#',
+                'name': row[1] if row[1] else ''
+            }
+            projects.append(row_dict)
         return projects
-
 
     def get_project_tasks(self, project_name, days=0, close=False):
         """
@@ -152,20 +195,23 @@ class Db:
         :return: A list of tasks in dict format.
         :rtype: list (dict)
         """
+        project_id = self.__get_project_id(project_name)
+
         rows = self.__execute(
-            "SELECT * FROM {tn} "
-            "WHERE Cast((JulianDay('now') - JulianDay(start_time)) AS INT) <= {d}", close, False,
-            tn=project_name, d=days)
+            "SELECT * FROM protokoll_tasks "
+            "WHERE Cast((JulianDay('now') - JulianDay(start_time)) AS INT) <= {d} "
+            "AND project_id = {pid}", close=close, commit=False, d=days, pid=project_id)
 
         tasks = []
         for row in rows:
             row_dict = {
                 'task_id': row[0] if row[0] is not None else '#',
-                'name': row[1] if row[1] else '',
-                'start_time': row[2] if row[2] is not None else '',
-                'stop_time': row[3] if row[3] is not None else '',
-                'total_mins': row[4] if row[4] is not None else int((datetime.now() -
-                                                                     datetime.strptime(row[2],
+                'project_name': project_name,
+                'name': row[2] if row[2] else '',
+                'start_time': row[3] if row[3] is not None else '',
+                'stop_time': row[4] if row[4] is not None else '',
+                'total_mins': row[5] if row[5] is not None else int((datetime.now() -
+                                                                     datetime.strptime(row[3],
                                                                                        "%Y-%m-%d "
                                                                                        "%H:%M:%S"))
                                                                     .total_seconds() / 60),
@@ -184,37 +230,10 @@ class Db:
         :return: True if a task is currently running, False if not.
         :rtype: bool
         """
-        projects = self.get_projects()
-
-        for project in projects:
-            rows = self.__execute(
-                "SELECT is_running FROM {tn} "
-                "WHERE is_running=1", close, False, tn=project)
-            if len(rows) > 0:
-                return True
-
-        return False
-
-    def get_projects_with_running_tasks(self, close=False):
-        """
-        Return a list of projects with running tasks.
-
-        :param close: Close the db connection on completion.
-        :type close: bool
-        :return: A list of project names with running tasks.
-        :rtype: list (str)
-        """
-        all_projects = self.get_projects()
-
-        projects = []
-        for project in all_projects:
-            rows = self.__execute(
-                "SELECT is_running from {tn} "
-                "WHERE is_running=1", close, False, tn=project)
-
-            if len(rows) > 0:
-                projects.append(project)
-        return projects
+        result = self.__execute(
+            "SELECT is_running FROM protokoll_tasks "
+            "WHERE is_running = 1", close=close, commit=False)
+        return bool(len(result))
 
 
     def __execute(self, cmd, close=False, commit=False, debug=False, **fargs):
@@ -252,3 +271,25 @@ class Db:
 
         return lines
 
+    def __get_project_id(self, project_name, close=False):
+        """
+        Get the project ID of a project.
+        Will throw a ProtokollException if the project doesn't exist.
+
+        :param project_name: Name of the project.
+        :type project_name: str
+        :param close: Close the database connection when done.
+        :type: close: bool
+        :return: Project ID
+        :rtype: int
+        """
+        # Get the project_id first
+        project_id = self.__execute(
+            "SELECT project_id from protokoll_projects "
+            "WHERE name = '{pn}'", close=close, pn=project_name)
+        if not len(project_id):
+            raise ProtokollException('Project doesn''t exist')
+
+        for pid in project_id:
+            # Get the first element of the tuple
+            return pid[0]
