@@ -206,11 +206,12 @@ class Db:
         for row in rows:
             row_dict = {
                 'task_id': row[0] if row[0] is not None else '#',
-                'name': row[1] if row[1] else '',
-                'start_time': row[2] if row[2] is not None else '',
-                'stop_time': row[3] if row[3] is not None else '',
-                'total_mins': row[4] if row[4] is not None else int((datetime.now() -
-                                                                     datetime.strptime(row[2],
+                'project_name': project_name,
+                'name': row[2] if row[2] else '',
+                'start_time': row[3] if row[3] is not None else '',
+                'stop_time': row[4] if row[4] is not None else '',
+                'total_mins': row[5] if row[5] is not None else int((datetime.now() -
+                                                                     datetime.strptime(row[3],
                                                                                        "%Y-%m-%d "
                                                                                        "%H:%M:%S"))
                                                                     .total_seconds() / 60),
