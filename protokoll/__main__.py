@@ -81,11 +81,17 @@ def list():
     """
     try:
         dbo = Db()
-        for proj in dbo.get_projects(close=True):
-            echo(proj)
+        projects = dbo.get_projects(close=True)
     except ProtokollException as ex:
         echo(str(ex), err=True)
         EXIT(1)
+
+    # Format the output nicely
+    template = "{project_id:8}|{name:15}"
+    echo(template.format(
+        project_id='Project ID', name='Name'))
+    for proj in projects:
+        echo(template.format(**proj))
 
 
 @cli.group()
