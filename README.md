@@ -15,6 +15,12 @@ cd protokoll
 python setup.py install
 ```
 
+The database schema changed from 0.1 to 0.2. Due to the age of this project at this time,
+I don't plan on writing a migration mechanism unless this is requested, so know
+that by upgrading to 0.2 or later you will no longer be able to see tasks or projects
+created with older versions of the program. However, moving foward, schema changes will
+be gracefully migrated.
+
 Usage
 =====
 ```
