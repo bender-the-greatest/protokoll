@@ -7,6 +7,7 @@ from os import path, makedirs
 from datetime import datetime
 from click import echo
 
+from protokoll.exception import ProtokollException
 
 class Db:
     """
@@ -45,7 +46,7 @@ class Db:
         :type close: bool
         """
         if project_name.startswith('sqlite_'):
-            raise ValueError('''Project name cannot start with 'sqlite_'.''')
+            raise ProtokollException('''Project name cannot start with 'sqlite_'.''')
 
         project_name = project_name.replace("'", "''")
 
@@ -86,7 +87,7 @@ class Db:
 
         # Check that we do not already have a running task
         if self.__check_for_running_tasks():
-            raise Exception('There is already a task running.')
+            raise ProtokollException('There is already a task running.')
 
         # Sanitize single quotes
         task_name = task_name.replace("'", "''")
@@ -194,6 +195,7 @@ class Db:
                 return True
 
         return False
+
 
     def get_projects_with_running_tasks(self, close=False):
         """
