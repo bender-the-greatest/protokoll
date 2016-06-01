@@ -44,11 +44,12 @@ class Db:
         :type project_name: str
         :param close: Close the database connection when completed.
         :type close: bool
+        :return: Returns the name of the project on success or if the project already exists.
         """
         if project_name.startswith('sqlite_'):
             raise ProtokollException('''Project name cannot start with 'sqlite_'.''')
 
-        project_name = project_name.replace("'", "''")
+        escaped_name = project_name.replace("'", "''")
 
         self.__execute(
             "CREATE TABLE IF NOT EXISTS {tn} "
@@ -57,7 +58,10 @@ class Db:
             "start_time DATETIME, "
             "stop_time DATETIME, "
             "total_mins INT, "
-            "is_running INT NOT NULL)", close, False, tn=project_name)
+            "is_running INT NOT NULL)", close, False, tn=escaped_name)
+
+        # Since the query succeeded we can just return the name of the project as expected.
+        return project_name
 
 
     def remove_project(self, project_name, close=False):

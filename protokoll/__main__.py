@@ -41,11 +41,13 @@ def create(project_name):
     """
     Create a new project.
 
+    If the project already exists, succeed anyways.
     :param project_name: Name of the project.
     """
     try:
         dbo = Db()
-        dbo.create_project(project_name, close=True)
+        name = dbo.create_project(project_name, close=True)
+        echo("Created project '{name}'".format(name=name))
     except ProtokollException as ex:
         echo(str(ex), err=True)
         EXIT(1)
