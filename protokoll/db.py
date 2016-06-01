@@ -215,7 +215,7 @@ class Db:
                                                                                        "%Y-%m-%d "
                                                                                        "%H:%M:%S"))
                                                                     .total_seconds() / 60),
-                'is_running': '' if row[5] == 0 else '*'
+                'is_running': '' if row[6] == 0 else '*'
             }
 
             tasks.append(row_dict)
