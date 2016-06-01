@@ -81,11 +81,17 @@ def list():
     """
     try:
         dbo = Db()
-        for proj in dbo.get_projects(close=True):
-            echo(proj)
+        projects = dbo.get_projects(close=True)
     except ProtokollException as ex:
         echo(str(ex), err=True)
         EXIT(1)
+
+    # Format the output nicely
+    template = "{project_id: >10}|{name:15}"
+    echo(template.format(
+        project_id='ID', name='Name'))
+    for proj in projects:
+        echo(template.format(**proj))
 
 
 @cli.group()
@@ -153,9 +159,11 @@ def list(days, project_name):
         EXIT(1)
 
     # Format the output nicely
-    template = "{task_id:8}|{name:50}|{start_time:20}|{stop_time:20}|{total_mins:10}|{is_running:8}"
+    template = "{task_id:8}|{project_name:15}|{name:50}|{start_time:20}|{stop_time:20}|" \
+      "{total_mins:10}|{is_running:8}"
+
     echo(template.format(
-        task_id='Task Id', name='Name', start_time='Start Time', stop_time='Stop Time',
+        task_id='Task Id', project_name='Project Name', name='Task Name', start_time='Start Time', stop_time='Stop Time',
         total_mins='Total Mins', is_running='Is Running'))
     for tsk in tasks:
         echo(template.format(**tsk))
