@@ -1,4 +1,6 @@
 # Protokoll - Track Your Time
+[![License](https://img.shields.io/badge/license-GPL3.0-brightgreen.svg)](LICENSE)
+
 A simple program made for tracking your time spent on tasks per project. Designed around use from the shell.
 
 Installation
